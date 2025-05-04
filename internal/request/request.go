@@ -7,17 +7,21 @@ import (
 	"io"
 	"strings"
 	"unicode"
+
+	"github.com/idir-44/httpfromtcp/internal/headers"
 )
 
-type ParserState string
+type ParserState int
 
 const (
-	ParserStateDone        ParserState = "done"
-	ParserStateInitialized ParserState = "initialized"
+	ParserStateInitialized ParserState = iota
+	ParserStateParsingHeaders
+	ParserStateDone
 )
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	parserState ParserState
 }
 
@@ -35,13 +39,15 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	var buff []byte
 	tmp := make([]byte, BUFF_SIZE, BUFF_SIZE)
 	request := &Request{parserState: ParserStateInitialized}
+	request.Headers = headers.NewHeaders()
 
 	for request.parserState != ParserStateDone {
 		nbBytesRead, err := reader.Read(tmp)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				request.parserState = ParserStateDone
-				break
+				if request.parserState != ParserStateDone {
+					return nil, fmt.Errorf("incomplete request, in state %d, read n bytes on EOF: %d", request.parserState, nbBytesRead)
+				}
 			}
 			return nil, err
 		}
@@ -64,24 +70,59 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 }
 
 func (r *Request) parse(data []byte) (int, error) {
+
+	totalBytesParsed := 0
+	for r.parserState != ParserStateDone {
+		nbParsedBytes, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+
+		totalBytesParsed += nbParsedBytes
+		if nbParsedBytes == 0 {
+			break
+		}
+	}
+
+	return totalBytesParsed, nil
+}
+func (r *Request) parseSingle(data []byte) (int, error) {
 	if r.parserState == ParserStateDone {
 		return 0, fmt.Errorf("error: cannot read data in a done state")
 	}
 
-	if r.parserState != ParserStateDone && r.parserState != ParserStateInitialized {
-		return 0, fmt.Errorf("error: unknown parser state")
+	switch r.parserState {
+	case ParserStateInitialized:
+		nbParsedLineBytes, err := r.parseRequestLine(data)
+		if err != nil {
+			return 0, err
+		}
+		return nbParsedLineBytes, nil
+	case ParserStateParsingHeaders:
+		nbParsedHeaderBytes, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, err
+		}
+		if done {
+			r.parserState = ParserStateDone
+		}
+		return nbParsedHeaderBytes, nil
+	default:
+		return 0, fmt.Errorf("unknown parser state")
 	}
+}
 
+func (r *Request) parseRequestLine(data []byte) (int, error) {
 	requestLine, nbParsedBytes, err := parseRequestLine(data)
 	if err != nil {
 		return nbParsedBytes, err
 	}
 
-	if requestLine == nil {
+	if nbParsedBytes == 0 {
 		return nbParsedBytes, nil
 	}
 
-	r.parserState = ParserStateDone
+	r.parserState = ParserStateParsingHeaders
 	r.RequestLine = *requestLine
 
 	return nbParsedBytes, nil
