@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -15,13 +16,15 @@ type ParserState int
 
 const (
 	ParserStateInitialized ParserState = iota
-	ParserStateParsingHeaders
+	ParserStateHeaders
+	ParserStateBody
 	ParserStateDone
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	parserState ParserState
 }
 
@@ -40,6 +43,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	tmp := make([]byte, BUFF_SIZE, BUFF_SIZE)
 	request := &Request{parserState: ParserStateInitialized}
 	request.Headers = headers.NewHeaders()
+	request.Body = make([]byte, 0)
 
 	for request.parserState != ParserStateDone {
 		nbBytesRead, err := reader.Read(tmp)
@@ -98,15 +102,35 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			return 0, err
 		}
 		return nbParsedLineBytes, nil
-	case ParserStateParsingHeaders:
+	case ParserStateHeaders:
 		nbParsedHeaderBytes, done, err := r.Headers.Parse(data)
 		if err != nil {
 			return 0, err
 		}
 		if done {
-			r.parserState = ParserStateDone
+			r.parserState = ParserStateBody
 		}
 		return nbParsedHeaderBytes, nil
+	case ParserStateBody:
+		value, ok := r.Headers.Get("content-length")
+		if !ok {
+			r.parserState = ParserStateDone
+			return len(data), nil
+		}
+
+		contentLength, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, fmt.Errorf("error parsing content length: %v", err)
+		}
+		r.Body = append(r.Body, data...)
+
+		if len(r.Body) > contentLength {
+			return 0, fmt.Errorf("error parsing body: content length should be equal to body")
+		} else if len(r.Body) == contentLength {
+			r.parserState = ParserStateDone
+		}
+
+		return len(data), nil
 	default:
 		return 0, fmt.Errorf("unknown parser state")
 	}
@@ -122,7 +146,7 @@ func (r *Request) parseRequestLine(data []byte) (int, error) {
 		return nbParsedBytes, nil
 	}
 
-	r.parserState = ParserStateParsingHeaders
+	r.parserState = ParserStateHeaders
 	r.RequestLine = *requestLine
 
 	return nbParsedBytes, nil

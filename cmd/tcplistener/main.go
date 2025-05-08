@@ -34,10 +34,15 @@ func main() {
 		fmt.Println("- Target:", req.RequestLine.RequestTarget)
 		fmt.Println("- Version:", req.RequestLine.HttpVersion)
 		if len(req.Headers) > 0 {
-			fmt.Println("Headers")
+			fmt.Println("Headers:")
 			for key, value := range req.Headers {
 				fmt.Printf("- %s: %s\n", key, value)
 			}
+		}
+
+		if len(req.Body) > 0 {
+			fmt.Println("Body:")
+			fmt.Println(string(req.Body))
 
 		}
 

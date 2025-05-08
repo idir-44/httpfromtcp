@@ -56,6 +56,12 @@ func (h Headers) Set(key, value string) {
 	h[key] = value
 }
 
+func (h Headers) Get(key string) (value string, ok bool) {
+	value, ok = h[strings.ToLower(key)]
+
+	return
+}
+
 func sliceString(s, sep string) ([]string, error) {
 	idx := strings.Index(s, sep)
 	if idx == -1 {
