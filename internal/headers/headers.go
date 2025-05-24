@@ -36,7 +36,7 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 		return 0, false, fmt.Errorf("field-name should not end with a space")
 	}
 
-	fieldName := strings.ToLower(strings.TrimSpace(headerFields[0]))
+	fieldName := strings.TrimSpace(headerFields[0])
 	if !isHeaderKeyValid(fieldName) {
 		return 0, false, fmt.Errorf("invalid field-name")
 	}
@@ -49,11 +49,16 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 }
 
 func (h Headers) Set(key, value string) {
-	if _, ok := h[key]; ok {
-		h[key] = strings.Join([]string{h[key], value}, ", ")
+	lowerKey := strings.ToLower(key)
+	if _, ok := h[lowerKey]; ok {
+		h[lowerKey] = strings.Join([]string{h[lowerKey], value}, ", ")
 		return
 	}
-	h[key] = value
+	h[lowerKey] = value
+}
+
+func (h Headers) Override(key, value string) {
+	h[strings.ToLower(key)] = value
 }
 
 func (h Headers) Get(key string) (value string, ok bool) {
