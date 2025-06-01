@@ -1,9 +1,14 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/idir-44/httpfromtcp/internal/request"
@@ -28,6 +33,23 @@ func main() {
 }
 
 func handleRequest(res *response.Writer, req *request.Request) {
+	if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin") {
+		res.WriteStatusLine(response.HTTPStatusOK)
+		headers := response.GetDefaultHeaders(0)
+		_, ok := headers.Delete("Content-Length")
+		if !ok {
+			log.Println("key Content-Length not found")
+		}
+		headers.Override("Connection", "Keep-Alive")
+		headers.Set("Transfer-Encoding", "chunked")
+		res.WriteHeaders(headers)
+		err := proxyChunkedDate(res, strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin"))
+		if err != nil {
+			log.Println("error reading chunks: ", err)
+		}
+		return
+	}
+
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
 		res.WriteStatusLine(response.HTTPStatusBadRequest)
@@ -81,5 +103,35 @@ func handleRequest(res *response.Writer, req *request.Request) {
 		headers.Override("Content-type", "text/html")
 		res.WriteHeaders(headers)
 		res.WriteBody(body)
+	}
+}
+
+func proxyChunkedDate(res *response.Writer, route string) error {
+	response, err := http.Get(fmt.Sprintf("https://httpbin.org%s", route))
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	buff := make([]byte, 1024)
+
+	for {
+		n, err := response.Body.Read(buff)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				res.WriteChunkedBodyDone()
+				return nil
+			}
+			return err
+		}
+
+		_, err = res.WriteChunkedBody([]byte(fmt.Sprintf("%X", n)))
+		if err != nil {
+			return err
+		}
+		n, err = res.WriteChunkedBody(buff[:n])
+		if err != nil {
+			return err
+		}
 	}
 }

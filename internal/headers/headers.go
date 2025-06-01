@@ -67,6 +67,19 @@ func (h Headers) Get(key string) (value string, ok bool) {
 	return
 }
 
+func (h Headers) Delete(key string) (value string, ok bool) {
+
+	lowerKey := strings.ToLower(key)
+
+	if _, ok := h[lowerKey]; ok {
+		value = h[lowerKey]
+		delete(h, lowerKey)
+		return value, true
+	}
+
+	return "", false
+}
+
 func sliceString(s, sep string) ([]string, error) {
 	idx := strings.Index(s, sep)
 	if idx == -1 {
